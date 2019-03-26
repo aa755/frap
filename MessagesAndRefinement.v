@@ -26,8 +26,14 @@ Ltac invert H := (FrapWithoutSets.invert H || (inversion H; clear H));
  * which we will just represent as numbers. *)
 Notation channel := nat (only parsing).
 
-(* Here are the basic syntactic constructions of processes. *)
+(* Here are the basic syntactic constructions of processes. 
+AA: unlike the Nuprl, ROSCoq, and Verdi process
+setting, here, there is not a fixed number of 
+processes: they can be spawned on demand.
+
+*)
 Inductive proc :=
+(* AA: this is like a lambda. this is a process-calculus-style encoding *)
 | NewChannel (notThese : list channel) (k : channel -> proc)
 (* Pick a new channel name [ch] not found in [notThese], and continue like
  * [k ch]. *)
@@ -189,7 +195,12 @@ Inductive lstep : proc -> label -> proc -> Prop :=
 (* Here's a shorthand for silent steps. *)
 Definition lstepSilent (pr1 pr2 : proc) := lstep pr1 Silent pr2.
 
-(* Our key proof task will be to prove that one process "acts like" another.
+(* 
+AA: this is termination insensitive AND may 
+require the high level system to have 
+no-op transitions.
+
+Our key proof task will be to prove that one process "acts like" another.
  * We'll use *simulation* as the precise notion of "acts like." *)
 
 (* We say that a relation [R] is a *simulation* when it satisfies the first two
@@ -371,7 +382,7 @@ Theorem add2_once_refines_addN : forall input output,
     -> add2_once input output <| addN 2 input output.
 Proof.
   simplify.
-  exists R_add2.
+  exists R_add2. hnf.
   first_order.
 
   invert H0; simplify; inverter; eauto.
@@ -599,31 +610,39 @@ Inductive RPar (R1 R2 : proc -> proc -> Prop) : proc -> proc -> Prop :=
 Hint Constructors RPar.
 
 Lemma refines_Par_Action : forall R1 R2 : _ -> _ -> Prop,
-    (forall pr1 pr2, R1 pr1 pr2
-                     -> forall pr1' a, lstep pr1 (Action a) pr1'
-                                     -> exists pr2' pr2'', lstepSilent^* pr2 pr2'
-                                                           /\ lstep pr2' (Action a) pr2''
-                                                           /\ R1 pr1' pr2'')
-    -> (forall pr1 pr2, R2 pr1 pr2
-                        -> forall pr1' a, lstep pr1 (Action a) pr1'
-                                          -> exists pr2' pr2'', lstepSilent^* pr2 pr2'
-                                                                /\ lstep pr2' (Action a) pr2''
-                                                                /\ R2 pr1' pr2'')
-    -> forall pr1 pr2, RPar R1 R2 pr1 pr2
-                       -> forall pr1' a, lstep pr1 (Action a) pr1'
-                                       -> exists pr2' pr2'', lstepSilent^* pr2 pr2'
-                                                             /\ lstep pr2' (Action a) pr2''
-                                                             /\ RPar R1 R2 pr1' pr2''.
+    (forall pr1 pr2,
+        R1 pr1 pr2
+        -> forall pr1' a,
+          lstep pr1 (Action a) pr1'
+          -> exists pr2' pr2'',
+            lstepSilent^* pr2 pr2'
+            /\ lstep pr2' (Action a) pr2''
+            /\ R1 pr1' pr2'')
+    -> (forall pr1 pr2,
+          R2 pr1 pr2
+          -> forall pr1' a,
+            lstep pr1 (Action a) pr1'
+            -> exists pr2' pr2'',
+              lstepSilent^* pr2 pr2'
+              /\ lstep pr2' (Action a) pr2''
+              /\ R2 pr1' pr2'')
+    -> forall pr1 pr2,
+        RPar R1 R2 pr1 pr2
+        -> forall pr1' a,
+          lstep pr1 (Action a) pr1'
+          -> exists pr2' pr2'',
+            lstepSilent^* pr2 pr2'
+            /\ lstep pr2' (Action a) pr2''                         /\ RPar R1 R2 pr1' pr2''.
 Proof.
-  invert 3; simplify.
-
+  intros ? ? Ha Hb ? ? Hr.
+  invert Hr. simplify.
   invert H1.
-  eapply H in H8; eauto.
-  first_order.
-  eauto 10.
-  eapply H0 in H8; eauto.
-  first_order.
-  eauto 10.
+  - eapply Ha in H6; eauto;[].
+    first_order.
+    eauto 10.
+  - eapply Hb in H6; eauto;[].
+    first_order.
+    eauto 10.
 Qed.
 
 Lemma refines_Par_Silent : forall R1 R2 : _ -> _ -> Prop,
@@ -649,13 +668,21 @@ Lemma refines_Par_Silent : forall R1 R2 : _ -> _ -> Prop,
                        -> forall pr1', lstepSilent pr1 pr1'
                                        -> exists pr2', lstepSilent^* pr2 pr2' /\ RPar R1 R2 pr1' pr2'.
 Proof.
+(*  intros ? ? Ha Hb Hra Hrb.
+  invert Hr. simplify.
+  invert H1. *)
+  
   invert 5; simplify.
 
   invert H3.
-  eapply H in H10; eauto.
+- eapply H in H10; eauto.
   first_order; eauto.
-  eapply H1 in H10; eauto.
+- eapply H1 in H10; eauto.
   first_order; eauto.
+
+  (* a send and a receive can also result into 
+a silent step *)
+- 
   eapply H0 in H8; eauto.
   eapply H2 in H9; eauto.
   first_order.
@@ -671,7 +698,7 @@ Proof.
   apply trc_one.
   eauto.
   eauto.
-  eapply H0 in H8; eauto.
+- eapply H0 in H8; eauto.
   eapply H2 in H9; eauto.
   first_order.
   eexists; propositional.
@@ -694,9 +721,11 @@ Theorem refines_Par : forall pr1 pr2 pr1' pr2',
     -> pr1 || pr2 <| pr1' || pr2'.
 Proof.
   invert 1; invert 1.
-  exists (RPar x x0).
+  rename x into R1. rename x0 into R2.
+  exists (RPar R1 R2).
   unfold simulates in *.
-  propositional; eauto using refines_Par_Silent, refines_Par_Action.
+  propositional;
+  eauto using refines_Par_Silent, refines_Par_Action.
 Qed.
 
 
